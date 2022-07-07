@@ -1,11 +1,18 @@
 import { configure } from 'mkh-ui'
-import 'mkh-ui/lib/style.css'
-import zhCN from '@mkh-locale/zh-cn'
-import en from '@mkh-locale/en'
-import './mod.js'
+import './index'
 
-configure({ locale: { messages: [zhCN, en] } })
-
-mkh.config.site.logo = './logo.png'
-mkh.config.site.title = '通用统一认证平台'
-mkh.config.http.global.baseURL = 'http://localhost:6220/api/'
+configure({
+  http: {
+    global: {
+      baseURL: import.meta.env.MKH_API_URL,
+    },
+  },
+  beforeMount({ config }) {
+    config.component.login = 'k'
+    config.site.title = {
+      'zh-cn': '通用统一认证平台',
+      en: 'Common Authentication Platform',
+    }
+    config.auth.enableButtonPermissions = true
+  },
+})

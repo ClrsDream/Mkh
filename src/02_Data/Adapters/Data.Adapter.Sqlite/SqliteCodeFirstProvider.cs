@@ -1,133 +1,165 @@
+using System.IO;
 using System.Linq;
 using System.Text;
 using Dapper;
+using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.DependencyInjection;
 using Mkh.Data.Abstractions;
 using Mkh.Data.Abstractions.Descriptors;
 using Mkh.Data.Abstractions.Options;
+using Mkh.Data.Core;
 
-namespace Mkh.Data.Adapter.Sqlite
+namespace Mkh.Data.Adapter.Sqlite;
+
+public class SqliteCodeFirstProvider : CodeFirstProviderAbstract
 {
-    public class SqliteCodeFirstProvider : ICodeFirstProvider
+    public SqliteCodeFirstProvider(CodeFirstOptions options, IDbContext context, IServiceCollection service) : base(options, context, service)
     {
-        private readonly CodeFirstOptions _options;
-        private readonly IDbContext _context;
+    }
 
-        public SqliteCodeFirstProvider(CodeFirstOptions options, IDbContext context)
+    #region ==创建库==
+
+    public override void CreateDatabase()
+    {
+        var builder = new SqliteConnectionStringBuilder(Context.Options.ConnectionString);
+        if (File.Exists(builder.ConnectionString))
         {
-            _options = options;
-            _context = context;
+            return;
         }
 
-        #region ==创建库==
+        Options.BeforeCreateDatabase?.Invoke(Context);
 
-        public void CreateDatabase()
+        //SQLite会自动创建数据库文件
+        using var con = Context.NewConnection();
+        con.Open();
+        con.Close();
+
+        Options.AfterCreateDatabase?.Invoke(Context);
+    }
+
+    #endregion
+
+    #region ==创建表==
+
+    public override void CreateTable()
+    {
+        foreach (var descriptor in Context.EntityDescriptors.Where(m => m.AutoCreate))
         {
-            //sqlite本身就包含自动创建数据库功能
+            CreateTable(descriptor);
         }
+    }
 
-        #endregion
-
-        #region ==创建表==
-
-        public void CreateTable()
+    public override void CreateNextTable()
+    {
+        var shardingEntities = Context.EntityDescriptors.Where(m => m.AutoCreate && m.IsSharding).ToList();
+        if (shardingEntities.Any())
         {
-            //创建表
-            foreach (var descriptor in _context.EntityDescriptors.Where(m => m.AutoCreate))
+            foreach (var entity in shardingEntities)
             {
-                using var con = _context.NewConnection();
-                con.Open();
+                CreateTable(entity, true);
+            }
+        }
+    }
 
-                //判断表是否存在，只有不存时会执行创建操作并会触发对应的创建前后事件
-                if (_context.SchemaProvider.IsExistsTable(con.Database, descriptor.TableName))
-                {
-                    //更新列
-                    if (_options.UpdateColumn)
-                    {
-                        //Sqlite不支持从一张表中删除列、添加列操作
-                    }
+    private void CreateTable(IEntityDescriptor descriptor, bool next = false)
+    {
+        using var con = Context.NewConnection();
+        con.Open();
 
-                    con.Close();
-                }
-                else
-                {
-                    _options.BeforeCreateTable?.Invoke(_context, descriptor);
+        var tableName = ResolveTableName(descriptor, next);
 
-                    var sql = GenerateCreateTableSql(descriptor);
+        //判断表是否存在，只有不存时会执行创建操作并会触发对应的创建前后事件
+        if (Context.SchemaProvider.IsExistsTable(con.Database, tableName))
+        {
+            //更新列
+            if (Options.UpdateColumn)
+            {
+                Context.Logger.Write("SQLite CreateTable", "SQLite不支持更新列功能，您需要手动更新");
+            }
 
-                    con.Execute(sql);
-                    con.Close();
+            con.Close();
+        }
+        else
+        {
+            Options.BeforeCreateTable?.Invoke(Context, descriptor);
 
-                    _options.BeforeCreateTable?.Invoke(_context, descriptor);
-                }
+            var sql = GenerateCreateTableSql(descriptor, tableName);
+
+            con.Execute(sql);
+            con.Close();
+
+            Options.AfterCreateTable?.Invoke(Context, descriptor);
+        }
+    }
+
+    private string GenerateCreateTableSql(IEntityDescriptor descriptor, string tableName)
+    {
+        var columns = descriptor.Columns;
+        var sql = new StringBuilder();
+        sql.AppendFormat("CREATE TABLE {0}(", AppendQuote(tableName));
+
+        for (int i = 0; i < columns.Count; i++)
+        {
+            var column = columns[i];
+
+            sql.Append(GetColumnAddSql(column, descriptor));
+
+            if (i < columns.Count - 1)
+            {
+                sql.Append(",");
             }
         }
 
-        private string GenerateCreateTableSql(IEntityDescriptor descriptor)
+        sql.Append(");");
+
+        return sql.ToString();
+    }
+
+    private string GetColumnAddSql(IColumnDescriptor column, IEntityDescriptor descriptor)
+    {
+        var sql = new StringBuilder();
+        sql.AppendFormat("{0} ", AppendQuote(column.Name));
+
+        switch (column.TypeName)
         {
-            var columns = descriptor.Columns;
-            var sql = new StringBuilder();
-            sql.AppendFormat("CREATE TABLE {0}(", AppendQuote(descriptor.TableName));
+            case "decimal":
+                var precision = column.Precision < 1 ? 18 : column.Precision;
+                var scale = column.Scale < 1 ? 4 : column.Scale;
+                sql.AppendFormat("{0}({1},{2}) ", column.TypeName, precision, scale);
+                break;
+            default:
+                sql.AppendFormat("{0} ", column.TypeName);
+                break;
+        }
+        if (column.IsPrimaryKey)
+        {
+            sql.Append("PRIMARY KEY ");
 
-            for (int i = 0; i < columns.Count; i++)
+            if (descriptor.PrimaryKey.IsInt || descriptor.PrimaryKey.IsLong)
             {
-                var column = columns[i];
-
-                sql.Append(GetColumnAddSql(column, descriptor));
-
-                if (i < columns.Count - 1)
-                {
-                    sql.Append(",");
-                }
+                sql.Append("AUTOINCREMENT ");
             }
-
-            sql.Append(");");
-
-            return sql.ToString();
+        }
+        if (!column.IsPrimaryKey && column.DefaultValue.NotNull())
+        {
+            sql.AppendFormat("DEFAULT {0}", column.DefaultValue);
         }
 
-        private string GetColumnAddSql(IColumnDescriptor column, IEntityDescriptor descriptor)
+        if (!column.Nullable)
         {
-            var sql = new StringBuilder();
-            sql.AppendFormat("{0} ", AppendQuote(column.Name));
-
-            switch (column.TypeName)
-            {
-                case "decimal":
-                    var precision = column.Precision < 1 ? 18 : column.Precision;
-                    var scale = column.Scale < 1 ? 4 : column.Scale;
-                    sql.AppendFormat("{0}({1},{2}) ", column.TypeName, precision, scale);
-                    break;
-                default:
-                    sql.AppendFormat("{0} ", column.TypeName);
-                    break;
-            }
-            if (column.IsPrimaryKey)
-            {
-                sql.Append("PRIMARY KEY ");
-
-                if (descriptor.PrimaryKey.IsInt || descriptor.PrimaryKey.IsLong)
-                {
-                    sql.Append("AUTOINCREMENT ");
-                }
-            }
-            if (!column.IsPrimaryKey && column.DefaultValue.NotNull())
-            {
-                sql.AppendFormat("DEFAULT {0}", column.DefaultValue);
-            }
-
-            if (!column.Nullable)
-            {
-                sql.Append(" NOT NULL ");
-            }
-
-            return sql.ToString();
+            sql.Append(" NOT NULL ");
         }
 
-        #endregion
+        //不区分大小写
+        sql.Append(" COLLATE NOCASE ");
 
-        private string AppendQuote(string value)
-        {
-            return _context.Adapter.AppendQuote(value);
-        }
+        return sql.ToString();
+    }
+
+    #endregion
+
+    private string AppendQuote(string value)
+    {
+        return Context.Adapter.AppendQuote(value);
     }
 }

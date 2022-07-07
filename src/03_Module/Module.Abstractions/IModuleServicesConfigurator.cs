@@ -1,19 +1,26 @@
-﻿using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
+﻿namespace Mkh.Module.Abstractions;
 
-namespace Mkh.Module.Abstractions
+/// <summary>
+/// 模块服务配置器接口
+/// <para>如果模块中有自己独有的服务需要注入，可以通过实现该接口来注入</para>
+/// </summary>
+public interface IModuleServicesConfigurator
 {
     /// <summary>
-    /// 模块服务配置器接口
-    /// <para>如果模块中有自己独有的服务需要注入，可以通过实现该接口来注入</para>
+    /// 前置服务注入
     /// </summary>
-    public interface IModuleServicesConfigurator
-    {
-        /// <summary>
-        /// 注入服务
-        /// </summary>
-        /// <param name="services"></param>
-        /// <param name="environment"></param>
-        void Configure(IServiceCollection services, IHostEnvironment environment);
-    }
+    /// <param name="context"></param>
+    void PreConfigure(ModuleConfigureContext context);
+
+    /// <summary>
+    /// 服务注入
+    /// </summary>
+    /// <param name="context"></param>
+    void Configure(ModuleConfigureContext context);
+
+    /// <summary>
+    /// 后置服务注入
+    /// </summary>
+    /// <param name="context"></param>
+    void PostConfigure(ModuleConfigureContext context);
 }

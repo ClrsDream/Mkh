@@ -1,5 +1,5 @@
 <template>
-  <m-select :action="query"></m-select>
+  <m-select :action="query" :clearable="clearable"></m-select>
 </template>
 <script>
 export default {
@@ -14,12 +14,17 @@ export default {
       type: String,
       required: true,
     },
+    clearable: {
+      type: Boolean,
+      default: true,
+    },
   },
   setup(props) {
     const { queryEnumOptions } = mkh.api.admin.common
     const query = () => {
       return queryEnumOptions({ moduleCode: props.module, enumName: props.name })
     }
+
     return {
       query,
     }

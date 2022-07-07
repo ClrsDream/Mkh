@@ -1,29 +1,28 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using System.Collections.Generic;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Mkh.Auth.Abstractions;
-using Mkh.Utils.Models;
 using Swashbuckle.AspNetCore.Annotations;
 
-namespace Mkh.Mod.Admin.Web.Controllers
+namespace Mkh.Mod.Admin.Web.Controllers;
+
+[SwaggerTag("模块管理")]
+public class ModuleController : Web.ModuleController
 {
-    [SwaggerTag("模块管理")]
-    public class ModuleController : BaseController
+    private readonly IPermissionResolver _permissionResolver;
+
+    public ModuleController(IPermissionResolver permissionResolver)
     {
-        private readonly IPermissionResolver _permissionResolver;
+        _permissionResolver = permissionResolver;
+    }
 
-        public ModuleController(IPermissionResolver permissionResolver)
-        {
-            _permissionResolver = permissionResolver;
-        }
-
-        /// <summary>
-        /// 获取指定模块的权限列表
-        /// </summary>
-        /// <returns></returns>
-        [HttpGet]
-        public IResultModel Permissions([BindRequired] string moduleCode)
-        {
-            return ResultModel.Success(_permissionResolver.GetPermissions(moduleCode));
-        }
+    /// <summary>
+    /// 获取指定模块的权限列表
+    /// </summary>
+    /// <returns></returns>
+    [HttpGet]
+    public IResultModel<IList<PermissionDescriptor>> Permissions([BindRequired] string moduleCode)
+    {
+        return ResultModel.Success(_permissionResolver.GetPermissions(moduleCode));
     }
 }

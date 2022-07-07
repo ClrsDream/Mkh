@@ -1,69 +1,114 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Mkh.Data.Abstractions;
+using Mkh.Data.Abstractions.Events;
 
-namespace Mkh.Data.Core.Repository
+namespace Mkh.Data.Core.Repository;
+
+/// <summary>
+/// 实体更新
+/// </summary>
+/// <typeparam name="TEntity"></typeparam>
+public abstract partial class RepositoryAbstract<TEntity>
 {
-    /// <summary>
-    /// 实体更新
-    /// </summary>
-    /// <typeparam name="TEntity"></typeparam>
-    public abstract partial class RepositoryAbstract<TEntity>
+    public Task<bool> Update(TEntity entity, IUnitOfWork uow = null)
     {
-        public Task<bool> Update(TEntity entity, IUnitOfWork uow = null)
+        return Update(entity, null, uow);
+    }
+
+    public async Task<bool> Update(TEntity entity, string tableName, IUnitOfWork uow = null)
+    {
+        Check.NotNull(entity, nameof(entity));
+
+        SetUpdateInfo(entity);
+
+        TEntity oldEntity = default;
+        List<IEntityUpdateEvent> events = null;
+        if (EntityDescriptor.EnableUpdateEvent && !EntityDescriptor.PrimaryKey.IsNo)
         {
-            return UpdateAsync(entity, null, uow);
+            events = _sp.GetServices<IEntityUpdateEvent>().ToList();
         }
 
-        protected async Task<bool> UpdateAsync(TEntity entity, string tableName, IUnitOfWork uow = null)
+        if (events.NotNullAndEmpty())
         {
-            Check.NotNull(entity, nameof(entity));
-
-            SetUpdateInfo(entity);
-
-            var sql = _sql.GetUpdateSingle(tableName);
-
-            var result = await Execute(sql, entity, uow) > 0;
-            return result;
+            oldEntity = await Get(EntityDescriptor.PrimaryKey.PropertyInfo.GetValue(entity), tableName, uow);
         }
 
-        /// <summary>
-        /// 设置更新信息
-        /// </summary>
-        private void SetUpdateInfo(TEntity entity)
+        var sql = _sql.GetUpdateSingle(tableName);
+
+        if (await Execute(sql, entity, uow) > 0)
         {
-            //设置实体的修改人编号、修改人姓名、修改时间
-            var descriptor = EntityDescriptor;
-            if (descriptor.IsEntityBase)
+            if (events.NotNullAndEmpty())
             {
-                foreach (var column in descriptor.Columns)
+                try
                 {
-                    var colName = column.PropertyInfo.Name;
-                    if (colName.Equals("ModifiedBy"))
+                    foreach (var changeEvents in events)
                     {
-                        var modifiedBy = column.PropertyInfo.GetValue(entity);
-                        if (modifiedBy == null || (Guid)modifiedBy == Guid.Empty)
+                        await changeEvents.OnUpdate(new EntityUpdateContext
                         {
-                            column.PropertyInfo.SetValue(entity, DbContext.AccountResolver.AccountId);
-                        }
-                        continue;
+                            DbContext = DbContext,
+                            EntityDescriptor = EntityDescriptor,
+                            NewEntity = entity,
+                            OldEntity = oldEntity,
+                            TableName = tableName,
+                            Uow = uow,
+                            UpdateTime = DateTime.Now,
+                            TenantId = DbContext.AccountResolver.TenantId,
+                            Operator = DbContext.AccountResolver.AccountId,
+                            OperatorName = DbContext.AccountResolver.AccountName
+                        });
                     }
-                    if (colName.Equals("Modifier"))
+                }
+                catch (Exception ex)
+                {
+                    _logger.Write("HandleEntityUpdateEvents", ex.Message);
+                }
+            }
+
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// 设置更新信息
+    /// </summary>
+    private void SetUpdateInfo(TEntity entity)
+    {
+        //设置实体的修改人编号、修改人姓名、修改时间
+        var descriptor = EntityDescriptor;
+        if (descriptor.IsEntityBase)
+        {
+            foreach (var column in descriptor.Columns)
+            {
+                var colName = column.PropertyInfo.Name;
+                if (colName.Equals("ModifiedBy"))
+                {
+                    var modifiedBy = column.PropertyInfo.GetValue(entity);
+                    if (modifiedBy == null || (Guid)modifiedBy == Guid.Empty)
                     {
-                        var modifier = column.PropertyInfo.GetValue(entity);
-                        if (modifier == null)
-                        {
-                            column.PropertyInfo.SetValue(entity, DbContext.AccountResolver.AccountName);
-                        }
-                        continue;
+                        column.PropertyInfo.SetValue(entity, DbContext.AccountResolver.AccountId);
                     }
-                    if (colName.Equals("ModifiedTime"))
+                    continue;
+                }
+                if (colName.Equals("Modifier"))
+                {
+                    var modifier = column.PropertyInfo.GetValue(entity);
+                    if (modifier == null)
                     {
-                        var modifiedTime = column.PropertyInfo.GetValue(entity);
-                        if (modifiedTime == null)
-                        {
-                            column.PropertyInfo.SetValue(entity, DateTime.Now);
-                        }
+                        column.PropertyInfo.SetValue(entity, DbContext.AccountResolver.AccountName);
+                    }
+                    continue;
+                }
+                if (colName.Equals("ModifiedTime"))
+                {
+                    var modifiedTime = column.PropertyInfo.GetValue(entity);
+                    if (modifiedTime == null)
+                    {
+                        column.PropertyInfo.SetValue(entity, DateTime.Now);
                     }
                 }
             }

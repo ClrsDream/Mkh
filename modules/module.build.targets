@@ -6,7 +6,7 @@
     <ModuleInfo>{"Id": $(Id),"Name":"$(Name)","Code":"$(Code)","Icon":"$(Icon)","Version":"$(Version)","Description":"$(Description)"}</ModuleInfo>
   </PropertyGroup>
 
-  <!--生产_module.json文件-->
+  <!--生成_module.json文件-->
   <Target Name="ModulesBuild" AfterTargets="Build">
 
     <!--创建modules目录-->
@@ -17,13 +17,12 @@
 
   </Target>
 
-  <!--复制程序集-->
-  <Target Name="CopyAssemblies" AfterTargets="AfterBuild">
-
-    <ItemGroup>
-      <AssemblyRootPath Include="$(OutputPath)**\*.dll"></AssemblyRootPath>
-    </ItemGroup>
-
-  </Target>
+  <ItemGroup>
+	  <Content Include="_modules*\**\**" PackagePath="contentFiles\any\any">
+		  <Pack>true</Pack>
+		  <PackageCopyToOutput>true</PackageCopyToOutput>
+		  <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+	  </Content>
+  </ItemGroup>
 
 </Project>

@@ -1,18 +1,22 @@
-namespace Mkh.Data.Abstractions
+namespace Mkh.Data.Abstractions;
+
+/// <summary>
+/// 代码优先提供器
+/// </summary>
+public interface ICodeFirstProvider
 {
     /// <summary>
-    /// 代码优先提供器
+    /// 创建库
     /// </summary>
-    public interface ICodeFirstProvider
-    {
-        /// <summary>
-        /// 创建库
-        /// </summary>
-        void CreateDatabase();
+    void CreateDatabase();
 
-        /// <summary>
-        /// 创建表
-        /// </summary>
-        void CreateTable();
-    }
+    /// <summary>
+    /// 创建表
+    /// </summary>
+    void CreateTable();
+
+    /// <summary>
+    /// 创建表
+    /// </summary>
+    void CreateNextTable();
 }

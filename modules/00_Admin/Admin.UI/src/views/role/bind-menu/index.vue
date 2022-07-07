@@ -1,28 +1,29 @@
 <template>
-  <m-box page :header="false" style="border-color: transparent; box-shadow: none" :loading="loading">
-    <el-alert title="只有菜单选中时，绑定的按钮数据才会生效~" type="warning" class="m-margin-b-20"> </el-alert>
-    <el-tree ref="treeRef" class="m-admin-bind-menu" :data="treeData" node-key="id" show-checkbox default-expand-all>
-      <template #default="{ node, data }">
-        <m-icon class="m-admin-bind-menu_icon" :name="data.item.icon || 'folder-o'" :style="{ color: data.item.iconColor }" />
-        <span class="m-admin-bind-menu_label">{{ node.label }}</span>
-        <div class="m-admin-bind-menu_buttons">
-          <template v-if="data.id === 0">
-            <el-checkbox v-model="checkedAllButton" label="全部" @change="handleCheckedAllButton"></el-checkbox>
-          </template>
-          <template v-else>
-            <el-checkbox v-for="b in data.buttons" :key="b.code" v-model="b.checked" :label="b.text" :disabled="!node.checked" @change="handleCheckedButton"></el-checkbox>
-          </template>
-        </div>
+  <m-container>
+    <m-box page :title="$t('mod.admin.menu_authorization')" icon="link" :loading="loading" show-fullscreen>
+      <el-alert :title="$t('mod.admin.menu_authorization_alert')" type="warning" class="m-margin-b-20"> </el-alert>
+      <el-tree ref="treeRef" class="m-admin-bind-menu" :data="treeData" node-key="id" show-checkbox default-expand-all>
+        <template #default="{ node, data }">
+          <m-icon class="m-admin-bind-menu_icon" :name="data.item.icon || 'folder-o'" :style="{ color: data.item.iconColor }" />
+          <span class="m-admin-bind-menu_label">{{ data.item.locales[$i18n.locale] || node.label }}</span>
+          <div class="m-admin-bind-menu_buttons">
+            <template v-if="data.id === 0">
+              <el-checkbox v-model="checkedAllButton" :label="$t('mod.admin.select_all')" @change="handleCheckedAllButton"></el-checkbox>
+            </template>
+            <template v-else>
+              <el-checkbox v-for="b in data.buttons" :key="b.code" v-model="b.checked" :label="$t(b.text)" :disabled="!node.checked" @change="handleCheckedButton"></el-checkbox>
+            </template>
+          </div>
+        </template>
+      </el-tree>
+      <template #footer>
+        <m-button type="success" icon="save" @click="submit">{{ $t('mkh.save') }}</m-button>
       </template>
-    </el-tree>
-    <template #footer>
-      <m-button type="success" text="保存" icon="save" @click="submit" />
-    </template>
-  </m-box>
+    </m-box>
+  </m-container>
 </template>
 <script>
-import { nextTick, ref, toRefs, watch } from 'vue'
-import { useStore } from 'vuex'
+import { getCurrentInstance, nextTick, ref, toRefs, watch } from 'vue'
 import { useMessage } from 'mkh-ui'
 export default {
   props: {
@@ -32,9 +33,11 @@ export default {
     },
   },
   setup(props) {
+    const { store } = mkh
+    const cit = getCurrentInstance().proxy
+
     const message = useMessage()
     const { menu: menuApi, role: roleApi } = mkh.api.admin
-    const store = useStore()
 
     const { role } = toRefs(props)
     const treeRef = ref()
@@ -54,10 +57,11 @@ export default {
       menuApi.getTree({ groupId: role.value.menuGroupId }).then(data => {
         allButtons.value = []
 
+        var groupName = role.value.menuGroupName
         treeData.value = [
           {
             id: 0,
-            label: role.value.menuGroupName,
+            label: groupName,
             children: data.map(n => {
               resolvePage(n)
               return n
@@ -67,6 +71,10 @@ export default {
               id: 0,
               icon: 'menu',
               type: 0,
+              locales: {
+                'zh-cn': groupName,
+                en: groupName,
+              },
             },
           },
         ]
@@ -103,14 +111,20 @@ export default {
       let type = node.item.type
       if (type === 1) {
         const page = pages.find(p => p.name === node.item.routeName)
-        node.page = page
-        node.buttons = Object.values(page.buttons).map(m => {
-          let btn = { ...m }
-          btn.menuId = node.item.id
-          btn.checked = false
-          return btn
-        })
-        allButtons.value.push(...node.buttons)
+        if (page) {
+          node.page = page
+          if (page.buttons) {
+            node.buttons = Object.values(page.buttons).map(m => {
+              let btn = { ...m }
+              btn.menuId = node.item.id
+              btn.checked = false
+              return btn
+            })
+            allButtons.value.push(...node.buttons)
+          } else {
+            node.buttons = []
+          }
+        }
       } else if (type === 0) {
         node.children.forEach(m => {
           resolvePage(m)
@@ -175,7 +189,7 @@ export default {
         //如果编辑的是当前登录人关联的角色，则刷新
         if (role.value.id === store.state.app.profile.roleId) {
           store.dispatch('app/profile/init', null, { root: true }).then(() => {
-            message.success('保存成功')
+            message.success(mkh.$t('mkh.save_success_msg'))
             loading.value = false
           })
         } else {
